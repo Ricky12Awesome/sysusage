@@ -1,78 +1,125 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::ops::Add;
-use colored::Colorize;
+#![feature(format_args_capture)]
 
-use crate::bytes::{ByteFormat, ByteFormatConvert};
-use crate::fixed_system::FixedSystem;
-use crate::util::TrimTrailingZerosToString;
+use std::io::Write;
+use std::ops::Add;
+use std::process::id;
+
+use colored::Colorize;
+use log::{Level, LevelFilter};
+use pretty_env_logger::env_logger::fmt::Formatter as LogFormatter;
 
 mod bytes;
 mod fixed_system;
 mod util;
 
-fn replace_all(str: &mut String, values: HashMap<impl ToString, impl ToString>) {
-  for (key, val) in values {
-    *str = str.replace(key.to_string().as_str(), val.to_string().as_str());
-  }
+struct Data {}
+
+fn replace_a(data: &Data) -> String {
+  String::from("A")
 }
 
 static mut PLACEHOLDER_PREFIX: &str = "${";
 static mut PLACEHOLDER_SUFFIX: &str = "}";
+static PLACEHOLDERS: phf::Map<&'static str, fn(&Data) -> String> = phf::phf_map! {
+  "p_a" => crate::replace_a,
+};
 
+#[inline]
 fn placeholder_prefix<'a>() -> &'a str {
   unsafe { PLACEHOLDER_PREFIX }
 }
 
+#[inline]
 fn placeholder_suffix<'a>() -> &'a str {
   unsafe { PLACEHOLDER_SUFFIX }
 }
 
-macro_rules! placeholder {
-  ($($arg:tt)*) => {
-    String::new()
-      .add(placeholder_prefix())
-      .add(format!($($arg)*).as_str())
-      .add(placeholder_suffix())
-  };
-}
+fn expand_placeholders(data: &Data, str: &str) -> String {
+  let mut out = String::with_capacity(str.len() * 2);
+  let prefix = placeholder_prefix();
+  let suffix = placeholder_suffix();
+  let mut idx = 0;
 
-fn insert_memory_info(sys: &FixedSystem, values: &mut HashMap<String, String>) {
-  macro_rules! insert {
-    ($name:literal, $val:expr) => {
-      values.insert(placeholder!("{}_in_GB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::GB).to_string_no_suffix());
-      values.insert(placeholder!("{}_in_GiB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::GiB).to_string_no_suffix());
-      values.insert(placeholder!("{}_in_MB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::MB).to_string_no_suffix());
-      values.insert(placeholder!("{}_in_MiB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::MiB).to_string_no_suffix());
-      values.insert(placeholder!("{}_in_KB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::KB).to_string_no_suffix());
-      values.insert(placeholder!("{}_in_KiB", $name), $val.convert_to_display(ByteFormat::KiB, ByteFormat::KiB).to_string_no_suffix());
-    };
+  while idx < str.len() {
+    let remaining = &str[idx..];
+
+    match remaining.find(prefix) {
+      Some(start) => {
+        let value = &remaining[start + prefix.len()..];
+
+        match value.find(suffix) {
+          Some(len) => {
+            let placeholder = &value[..len];
+            let placeholder_len = len + suffix.len() + 1;
+
+            log::debug!("Placeholder '{placeholder}' at index {idx}, +{start} (index {}) from last placeholder", idx + start);
+
+            out.push_str(&str[idx..idx + start]);
+
+            let value = match PLACEHOLDERS.get(placeholder) {
+              Some(f) => f(data),
+              None => {
+                log::warn!("Placeholder '{placeholder}' does not exit");
+                String::with_capacity(placeholder_len * 2)
+                  .add(prefix)
+                  .add(placeholder)
+                  .add(suffix)
+              }
+            };
+
+            out.push_str(value.as_str());
+
+            idx += start + placeholder_len;
+          }
+          None => {
+            let last_suffix = remaining.find(suffix).unwrap_or(0);
+            let remaining = &remaining[last_suffix..];
+            let next_prefix = remaining.find(prefix).unwrap_or(remaining.len());
+
+            log::warn!("Missing suffix for placeholder at index '{}'", idx + start);
+
+            out.push_str(&remaining[last_suffix..next_prefix]);
+
+            idx += start;
+          }
+        }
+      }
+      None => {
+        out.push_str(remaining);
+        idx = str.len()
+      }
+    }
+
+    idx += 1;
   }
 
-  insert!("mem_total", sys.total_memory());
-  insert!("mem_used", sys.used_memory());
-  insert!("mem_free", sys.free_memory());
-  insert!("mem_available", sys.available_memory());
+  out
+}
 
-  let mem_percent = (sys.used_memory() as f64 / sys.total_memory() as f64) * 100f64;
-  values.insert(placeholder!("mem_percent"), mem_percent.trim_trailing_zeros_with_precision(2));
+fn log_format(fmt: &mut LogFormatter, record: &log::Record) -> std::io::Result<()> {
+  let args = record.args().to_string();
+  let args = args.as_str();
 
-  insert!("swap_total", sys.total_swap());
-  insert!("swap_used", sys.used_swap());
-  insert!("swap_free", sys.free_swap());
+  let (level, args) = match record.level() {
+    Level::Error => ("Error".red(), args.bright_red()),
+    Level::Warn => ("Warn".yellow(), args.bright_yellow()),
+    Level::Info => ("Info".white(), args.bright_white()),
+    Level::Debug => ("Debug".magenta(), args.bright_magenta()),
+    Level::Trace => ("Trace".blue(), args.bright_blue()),
+  };
 
-  let mem_percent = (sys.used_swap() as f64 / sys.total_swap() as f64) * 100f64;
-  values.insert(placeholder!("swap_percent"), mem_percent.trim_trailing_zeros_with_precision(2));
+  writeln!(fmt, "[{}] {}", level, args)
 }
 
 fn main() {
   colored::control::set_override(true);
-  let info = FixedSystem::new_all();
-  let mut str = String::from("${mem_percent}% ${swap_percent}% ${mem_used_in_GiB} / ${mem_total_in_GiB}");
-  let mut values = HashMap::new();
-
-  insert_memory_info(&info, &mut values);
-  replace_all(&mut str, values);
+  pretty_env_logger::env_logger::builder()
+    .format(log_format)
+    .filter_level(LevelFilter::Trace)
+    .init();
+  // let info = FixedSystem::new_all();
+  let data = Data {};
+  let str = expand_placeholders(&data, &"${p_a} ${p_b} ${p_c");
 
   println!("{}", str);
 }
