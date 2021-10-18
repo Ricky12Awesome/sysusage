@@ -2,7 +2,7 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 use sysinfo::{RefreshKind, System, SystemExt};
@@ -22,6 +22,11 @@ impl Deref for FixedSystem {
   }
 }
 
+impl DerefMut for FixedSystem {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.sys
+  }
+}
 
 fn convert(from: u64) -> u64 {
   (from as f64 / 1.024).ceil() as u64

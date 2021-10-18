@@ -1,6 +1,7 @@
 #![feature(format_args_capture)]
 
 use phf::Map;
+use sysinfo::SystemExt;
 
 use crate::bytes::{ByteFormat, ByteFormatConvert};
 use crate::fixed_system::FixedSystem;
@@ -18,7 +19,7 @@ struct Data {
 }
 
 impl Data {
-  fn mem_used(&mut self, args: &[&str]) -> String {
+  fn mem_placeholder(&self, val: fn(&FixedSystem) -> u64 , args: &[&str]) -> String {
     let mut no_suffix = false;
     let mut format = ByteFormat::GiB;
 
@@ -37,22 +38,29 @@ impl Data {
       }
     }
 
-    let value = self.sys
-      .used_memory()
-      .convert_to_display(ByteFormat::KiB, format);
+    let val = val(&self.sys).convert_to_display(ByteFormat::KiB, format);
 
     if no_suffix {
-      value.to_string_no_suffix()
+      val.to_string_no_suffix()
     } else {
-      value.to_string()
+      val.to_string()
     }
+  }
+
+  fn mem_used(&self, args: &[&str]) -> String {
+    self.mem_placeholder(FixedSystem::used_memory, args)
+  }
+
+  fn mem_total(&self, args: &[&str]) -> String {
+    self.mem_placeholder(FixedSystem::total_memory, args)
   }
 }
 
 impl PlaceholderExpander for Data {
-  fn placeholders(&self) -> &Map<&'static str, fn(&mut Self, &[&str]) -> String> {
-    static PLACEHOLDERS: phf::Map<&'static str, fn(&mut Data, &[&str]) -> String> = phf::phf_map! {
+  fn placeholders(&self) -> &Map<&'static str, fn(&Self, &[&str]) -> String> {
+    static PLACEHOLDERS: phf::Map<&'static str, fn(&Data, &[&str]) -> String> = phf::phf_map! {
       "mem_used" => Data::mem_used,
+      "mem_total" => Data::mem_total,
     };
 
     &PLACEHOLDERS
@@ -68,11 +76,12 @@ impl PlaceholderExpander for Data {
 }
 
 fn main() {
-  colored::control::set_override(true);
   log::init(LogMode::Debug);
+  colored::control::set_override(true);
+
   let sys = FixedSystem::new_all();
-  let mut data = Data { sys };
-  let pre_str = "${mem_used} ${mem_used|mib} ${mem_used|no_suffix} ${mem_used|KiB}";
+  let data = Data { sys };
+  let pre_str = "${mem_used} ${mem_used|mib} ${mem_used|no_suffix} ${mem_total|KiB}";
   let str = data.expand_placeholders(pre_str);
 
   log::debug!("Input \"{}\"", pre_str);

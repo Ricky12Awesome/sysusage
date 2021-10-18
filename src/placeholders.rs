@@ -3,15 +3,13 @@ use std::ops::Add;
 use itertools::Itertools;
 
 pub trait PlaceholderExpander where Self: 'static {
-  fn placeholders(&self) -> &phf::Map<&'static str, fn(&mut Self, args: &[&str]) -> String>;
+  fn placeholders(&self) -> &phf::Map<&'static str, fn(&Self, args: &[&str]) -> String>;
 
   fn placeholder_prefix(&self) -> &str;
   fn placeholder_suffix(&self) -> &str;
 
-  fn expand_placeholders(&mut self, str: &str) -> String {
+  fn expand_placeholders(&self, str: &str) -> String {
     let mut out = String::with_capacity(str.len() * 2);
-    // Ignore "cannot borrow as immutable", since in this case it's perfectly fine
-    let _self = unsafe { &mut *(self as *mut _) };
     let prefix = self.placeholder_prefix();
     let suffix = self.placeholder_suffix();
     let placeholders = self.placeholders();
@@ -37,7 +35,7 @@ pub trait PlaceholderExpander where Self: 'static {
               out.push_str(&str[idx..idx + start]);
 
               let value = match placeholders.get(name) {
-                Some(f) => f(_self, args),
+                Some(f) => f(self, args),
                 None => {
                   log::warn!("Placeholder \"{name}\" does not exit");
                   String::with_capacity(placeholder_len * 2)
