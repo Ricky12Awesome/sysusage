@@ -11,6 +11,23 @@ mod log;
 mod placeholders;
 mod util;
 
+macro_rules! placeholder {
+  ($($vis:vis $name:ident ($slf:ident, $args:ident) $b:block)+) => {
+    $(
+      #[allow(unused)]
+      $vis fn $name(&$slf, $args: &[&str]) -> String $b
+    )+
+
+    #[allow(unused)]
+    fn _get_placeholder(&self, name: &str) -> Option<GetPlaceholder> {
+      match name {
+        $(stringify!($name) => Some(Self::$name),)+
+        _ => None
+      }
+    }
+  };
+}
+
 struct Data {
   sys: FixedSystem,
 }
@@ -18,6 +35,30 @@ struct Data {
 type GetPlaceholder = placeholders::GetPlaceholder<Data>;
 
 impl Data {
+  placeholder! {
+    mem_used(self, args) {
+      self.mem_placeholder(FixedSystem::used_memory, args)
+    }
+    mem_free(self, args) {
+      self.mem_placeholder(FixedSystem::free_memory, args)
+    }
+    mem_available(self, args) {
+      self.mem_placeholder(FixedSystem::available_memory, args)
+    }
+    mem_total(self, args) {
+      self.mem_placeholder(FixedSystem::total_memory, args)
+    }
+    swap_used(self, args) {
+      self.mem_placeholder(FixedSystem::used_swap, args)
+    }
+    swap_total(self, args) {
+      self.mem_placeholder(FixedSystem::total_swap, args)
+    }
+    swap_free(self, args) {
+      self.mem_placeholder(FixedSystem::free_swap, args)
+    }
+  }
+
   fn mem_placeholder(&self, val: fn(&FixedSystem) -> u64, args: &[&str]) -> String {
     let mut no_suffix = false;
     let mut format = ByteFormat::GiB;
@@ -45,24 +86,11 @@ impl Data {
       val.to_string()
     }
   }
-
-  fn mem_used(&self, args: &[&str]) -> String {
-    self.mem_placeholder(FixedSystem::used_memory, args)
-  }
-
-  fn mem_total(&self, args: &[&str]) -> String {
-    self.mem_placeholder(FixedSystem::total_memory, args)
-  }
 }
 
 impl PlaceholderExpander for Data {
   fn get_placeholder(&self, name: &str) -> Option<GetPlaceholder> {
-    match name {
-      "mem_used" => Some(Self::mem_used),
-      "mem_total" => Some(Self::mem_total),
-      "mem_free" => Some(|_self, args| _self.mem_placeholder(FixedSystem::free_memory, args)),
-      _ => None
-    }
+    self._get_placeholder(name)
   }
 }
 
@@ -72,7 +100,7 @@ fn main() {
 
   let sys = FixedSystem::new_all();
   let data = Data { sys };
-  let pre_str = "${mem_used} ${mem_used|mib} ${mem_free} ${mem_total|KiB}";
+  let pre_str = "${mem_used} ${mem_available|mib} ${mem_free} ${mem_total|KiB} ${this_should_not_exist}";
   let str = data.expand_placeholders(pre_str);
 
   log::debug!("Input \"{}\"", pre_str);
