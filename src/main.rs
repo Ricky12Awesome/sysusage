@@ -1,8 +1,5 @@
 #![feature(format_args_capture)]
 
-use phf::Map;
-use sysinfo::SystemExt;
-
 use crate::bytes::{ByteFormat, ByteFormatConvert};
 use crate::fixed_system::FixedSystem;
 use crate::log::LogMode;
@@ -18,8 +15,10 @@ struct Data {
   sys: FixedSystem,
 }
 
+type GetPlaceholder = placeholders::GetPlaceholder<Data>;
+
 impl Data {
-  fn mem_placeholder(&self, val: fn(&FixedSystem) -> u64 , args: &[&str]) -> String {
+  fn mem_placeholder(&self, val: fn(&FixedSystem) -> u64, args: &[&str]) -> String {
     let mut no_suffix = false;
     let mut format = ByteFormat::GiB;
 
@@ -57,21 +56,13 @@ impl Data {
 }
 
 impl PlaceholderExpander for Data {
-  fn placeholders(&self) -> &Map<&'static str, fn(&Self, &[&str]) -> String> {
-    static PLACEHOLDERS: phf::Map<&'static str, fn(&Data, &[&str]) -> String> = phf::phf_map! {
-      "mem_used" => Data::mem_used,
-      "mem_total" => Data::mem_total,
-    };
-
-    &PLACEHOLDERS
-  }
-
-  fn placeholder_prefix(&self) -> &str {
-    "${"
-  }
-
-  fn placeholder_suffix(&self) -> &str {
-    "}"
+  fn get_placeholder(&self, name: &str) -> Option<GetPlaceholder> {
+    match name {
+      "mem_used" => Some(Self::mem_used),
+      "mem_total" => Some(Self::mem_total),
+      "mem_free" => Some(|_self, args| _self.mem_placeholder(FixedSystem::free_memory, args)),
+      _ => None
+    }
   }
 }
 
@@ -81,7 +72,7 @@ fn main() {
 
   let sys = FixedSystem::new_all();
   let data = Data { sys };
-  let pre_str = "${mem_used} ${mem_used|mib} ${mem_used|no_suffix} ${mem_total|KiB}";
+  let pre_str = "${mem_used} ${mem_used|mib} ${mem_free} ${mem_total|KiB}";
   let str = data.expand_placeholders(pre_str);
 
   log::debug!("Input \"{}\"", pre_str);
