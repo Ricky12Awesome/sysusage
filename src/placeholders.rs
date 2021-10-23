@@ -1,9 +1,13 @@
+use std::fmt::Debug;
 use std::ops::Add;
 
-pub type GetPlaceholder<T> = fn(&T, args: &[&str]) -> String;
+pub type PlaceholderFn<T, A> = fn(&T, args: A) -> String;
 
 pub trait PlaceholderExpander where Self: 'static {
-  fn get_placeholder(&self, name: &str) -> Option<GetPlaceholder<Self>>;
+  type Args: Debug;
+
+  fn get_placeholder(&self, name: &str) -> Option<PlaceholderFn<Self, Self::Args>>;
+  fn parse_args(&self, name: &str, args: &[&str]) -> Self::Args;
 
   fn placeholder_prefix(&self) -> &str { "${" }
   fn placeholder_suffix(&self) -> &str { "}" }
@@ -28,6 +32,7 @@ pub trait PlaceholderExpander where Self: 'static {
               let placeholder_len = len + suffix.len() + 1;
               let name = placeholder_args.get(0).unwrap_or(&"");
               let args = placeholder_args.get(1..).unwrap_or_default();
+              let args = self.parse_args(name, args);
 
               log::debug!("Placeholder \"{placeholder_raw}\" with arguments {args:?} at index {idx}, +{start} (index {}) from last placeholder", idx + start);
 
