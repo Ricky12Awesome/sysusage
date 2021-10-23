@@ -1,6 +1,26 @@
 use std::borrow::Cow;
 use std::str::FromStr;
 
+static mut _SUPPORTS_COLOR: bool = true;
+pub static SUPPORTS_COLOR: &bool = unsafe { &_SUPPORTS_COLOR };
+
+pub enum ColorMode {
+  Auto,
+  Always,
+  None,
+}
+
+pub fn set_color_mode(mode: ColorMode) {
+  unsafe {
+    _SUPPORTS_COLOR = match mode {
+      ColorMode::Auto => true, // TODO
+      ColorMode::Always => true,
+      ColorMode::None => false,
+    }
+  }
+}
+
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Color {
   Black,
@@ -21,7 +41,7 @@ pub enum Color {
   BrightWhite,
   Reset,
   Color256(u8),
-  TrueColor(u8, u8, u8)
+  TrueColor(u8, u8, u8),
 }
 
 impl Color {
@@ -43,7 +63,7 @@ impl Color {
       Color::BrightMagenta => "95".into(),
       Color::BrightCyan => "96".into(),
       Color::BrightWhite => "97".into(),
-      Color::Reset => "39;49m".into(),
+      Color::Reset => "39;49".into(),
       Color::Color256(n) => format!("38;5;{}m", n).into(),
       Color::TrueColor(r, g, b) => format!("38;2;{};{};{}", r, g, b).into(),
     }
@@ -67,18 +87,26 @@ impl Color {
       Color::BrightMagenta => "105".into(),
       Color::BrightCyan => "106".into(),
       Color::BrightWhite => "107".into(),
-      Color::Reset => "39;49m".into(),
+      Color::Reset => "39;49".into(),
       Color::Color256(n) => format!("48;5;{}", n).into(),
       Color::TrueColor(r, g, b) => format!("48;2;{};{};{}", r, g, b).into(),
     }
   }
 
   pub fn fg(&self) -> String {
-    format!("\x1B[{}m", self.to_fg_str())
+    if *SUPPORTS_COLOR {
+      format!("\x1B[{}m", self.to_fg_str())
+    } else {
+      format!("")
+    }
   }
 
   pub fn bg(&self) -> String {
-    format!("\x1B[{}m", self.to_bg_str())
+    if *SUPPORTS_COLOR {
+      format!("\x1B[{}m", self.to_bg_str())
+    } else {
+      format!("")
+    }
   }
 }
 
@@ -96,8 +124,7 @@ impl FromStr for Color {
       "green" => Ok(Color::Green),
       "yellow" => Ok(Color::Yellow),
       "blue" => Ok(Color::Blue),
-      "magenta" => Ok(Color::Magenta),
-      "purple" => Ok(Color::Magenta),
+      "magenta" | "purple" => Ok(Color::Magenta),
       "cyan" => Ok(Color::Cyan),
       "gray" | "grey" | "white" => Ok(Color::White),
       "bright_black" | "bright black" => Ok(Color::BrightBlack),
@@ -142,5 +169,68 @@ impl FromStr for Color {
       .flatten();
 
     result
+  }
+}
+
+pub trait Colorize: Sized {
+  fn with_fg(self, color: Color) -> String;
+  fn with_bg(self, color: Color) -> String;
+
+  fn black(self) -> String { self.with_fg(Color::Black) }
+  fn red(self) -> String { self.with_fg(Color::Red) }
+  fn green(self) -> String { self.with_fg(Color::Green) }
+  fn yellow(self) -> String { self.with_fg(Color::Yellow) }
+  fn blue(self) -> String { self.with_fg(Color::Blue) }
+  fn magenta(self) -> String { self.with_fg(Color::Magenta) }
+  fn cyan(self) -> String { self.with_fg(Color::Cyan) }
+  fn white(self) -> String { self.with_fg(Color::White) }
+  fn grey(self) -> String { self.white() }
+  fn gray(self) -> String { self.white() }
+  fn bright_black(self) -> String { self.with_fg(Color::BrightBlack) }
+  fn bright_red(self) -> String { self.with_fg(Color::BrightRed) }
+  fn bright_green(self) -> String { self.with_fg(Color::BrightGreen) }
+  fn bright_yellow(self) -> String { self.with_fg(Color::BrightYellow) }
+  fn bright_blue(self) -> String { self.with_fg(Color::BrightBlue) }
+  fn bright_magenta(self) -> String { self.with_fg(Color::BrightMagenta) }
+  fn bright_cyan(self) -> String { self.with_fg(Color::BrightCyan) }
+  fn bright_white(self) -> String { self.with_fg(Color::BrightWhite) }
+
+  fn on_black(self) -> String { self.with_bg(Color::Black) }
+  fn on_red(self) -> String { self.with_bg(Color::Red) }
+  fn on_green(self) -> String { self.with_bg(Color::Green) }
+  fn on_yellow(self) -> String { self.with_bg(Color::Yellow) }
+  fn on_blue(self) -> String { self.with_bg(Color::Blue) }
+  fn on_magenta(self) -> String { self.with_bg(Color::Magenta) }
+  fn on_cyan(self) -> String { self.with_bg(Color::Cyan) }
+  fn on_white(self) -> String { self.with_bg(Color::White) }
+  fn on_grey(self) -> String { self.on_white() }
+  fn on_gray(self) -> String { self.on_white() }
+  fn on_bright_black(self) -> String { self.with_bg(Color::BrightBlack) }
+  fn on_bright_red(self) -> String { self.with_bg(Color::BrightRed) }
+  fn on_bright_green(self) -> String { self.with_bg(Color::BrightGreen) }
+  fn on_bright_yellow(self) -> String { self.with_bg(Color::BrightYellow) }
+  fn on_bright_blue(self) -> String { self.with_bg(Color::BrightBlue) }
+  fn on_bright_magenta(self) -> String { self.with_bg(Color::BrightMagenta) }
+  fn on_bright_cyan(self) -> String { self.with_bg(Color::BrightCyan) }
+  fn on_bright_white(self) -> String { self.with_bg(Color::BrightWhite) }
+}
+
+impl Colorize for &str {
+  fn with_fg(self, color: Color) -> String {
+    format!("{}{}{}", color.fg(), self, Color::Reset.fg())
+  }
+
+  fn with_bg(self, color: Color) -> String {
+    format!("{}{}{}", color.bg(), self, Color::Reset.bg())
+  }
+}
+
+impl Colorize for String {
+  fn with_fg(self, color: Color) -> String {
+    format!("{}{}", color.fg(), self)
+  }
+
+  fn with_bg(self, color: Color) -> String {
+    format!("{}{}", color.bg(), self)
   }
 }

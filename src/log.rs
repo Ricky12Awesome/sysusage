@@ -1,9 +1,9 @@
 #![allow(unused)]
 use std::io::Write;
 
-use colored::Colorize;
 pub use log::*;
 use pretty_env_logger::env_logger::fmt::Formatter;
+use crate::color::Colorize;
 
 fn log_format(fmt: &mut Formatter, record: &log::Record) -> std::io::Result<()> {
   let args = record.args().to_string();

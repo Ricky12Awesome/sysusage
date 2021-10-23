@@ -3,7 +3,7 @@
 use std::str::FromStr;
 
 use crate::bytes::{ByteFormat, ByteFormatConvert};
-use crate::color::Color;
+use crate::color::{Color, ColorMode, set_color_mode};
 use crate::fixed_system::FixedSystem;
 use crate::log::LogMode;
 use crate::placeholders::PlaceholderExpander;
@@ -149,12 +149,12 @@ impl PlaceholderExpander for Data {
 }
 
 fn main() {
-  log::init(LogMode::Silent);
-  colored::control::set_override(true);
+  log::init(LogMode::Debug);
+  set_color_mode(ColorMode::Always);
 
   let sys = FixedSystem::new_all();
   let data = Data { sys };
-  let pre_str = "${fg|green}${mem_used|.2} ${fg|gray}/ ${fg|blue}${mem_total} ${fg|gray}(${fg|yellow}${mem_usage|.2|with_suffix}%${fg|gray})";
+  let pre_str = "${bg|black}${fg|green}${mem_used|.2} ${fg|gray}/ ${fg|blue}${mem_total} ${fg|gray}(${fg|yellow}${mem_usage|.2|with_suffix}%${fg|gray})";
   let str = data.expand_placeholders(pre_str);
 
   log::debug!("Input \"{}\"", pre_str);
