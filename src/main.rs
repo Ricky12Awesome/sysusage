@@ -1,9 +1,11 @@
 #![feature(format_args_capture, associated_type_defaults, result_flattening)]
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::bytes::{ByteFormat, ByteFormatConvert};
 use crate::color::{Color, ColorMode, set_color_mode};
+use crate::config::Config;
 use crate::fixed_system::FixedSystem;
 use crate::log::LogMode;
 use crate::placeholders::PlaceholderExpander;
@@ -11,6 +13,7 @@ use crate::util::TrimTrailingZerosToString;
 
 mod bytes;
 mod color;
+mod config;
 mod fixed_system;
 mod log;
 mod placeholders;
@@ -25,7 +28,7 @@ macro_rules! placeholder {
     #[allow(unused)]
     fn _get_placeholder(&self, name: &str) -> Option<PlaceholderFn> {
       match name {
-        $(stringify!($name) => Some(Self::$name),)+
+        $(stringify!($name) => Some(Box::new(Self::$name)),)+
         _ => None
       }
     }
@@ -34,25 +37,43 @@ macro_rules! placeholder {
 
 struct Data {
   sys: FixedSystem,
+  custom: HashMap<String, String>,
+}
+
+impl Data {
+  fn new(sys: FixedSystem, config: Config) -> Self {
+    let mut _self = Self {
+      sys,
+      custom: HashMap::with_capacity(config.sections.len() * 2)
+    };
+
+    for (name, value) in config.sections {
+      _self.custom.insert(name, _self.expand_placeholders(&value));
+    }
+
+    _self
+  }
 }
 
 #[derive(Debug)]
 struct Args {
+  name: String,
   precision: usize,
   format: ByteFormat,
   with_suffix: bool,
   fg: String,
-  bg: String
+  bg: String,
 }
 
 impl Default for Args {
   fn default() -> Self {
     Self {
+      name: String::new(),
       precision: 2,
       format: ByteFormat::GiB,
       with_suffix: false,
-      fg: "".to_string(),
-      bg: "".to_string(),
+      fg: String::new(),
+      bg: String::new(),
     }
   }
 }
@@ -60,6 +81,8 @@ impl Default for Args {
 impl Args {
   fn from(name: &str, args: &[&str]) -> Self {
     let mut out = Self::default();
+
+    out.name = name.to_string();
 
     for arg in args {
       if arg.starts_with('.') {
@@ -136,11 +159,23 @@ impl Data {
   }
 }
 
+
 impl PlaceholderExpander for Data {
   type Args = Args;
 
   fn get_placeholder(&self, name: &str) -> Option<PlaceholderFn> {
-    self._get_placeholder(name)
+    fn custom(s: &String) -> PlaceholderFn {
+      let s = s.clone();
+
+      Box::new(move |_, _| { s.clone() })
+    }
+
+    match self._get_placeholder(name) {
+      Some(val) => Some(val),
+      None => self.custom
+        .get(&name.to_string())
+        .map(custom)
+    }
   }
 
   fn parse_args(&self, name: &str, args: &[&str]) -> Self::Args {
@@ -153,11 +188,15 @@ fn main() {
   set_color_mode(ColorMode::Always);
 
   let sys = FixedSystem::new_all();
-  let data = Data { sys };
-  let pre_str = "${bg|black}${fg|green}${mem_used|.2} ${fg|gray}/ ${fg|blue}${mem_total} ${fg|gray}(${fg|yellow}${mem_usage|.2|with_suffix}%${fg|gray})";
-  let str = data.expand_placeholders(pre_str);
-
-  log::debug!("Input \"{}\"", pre_str);
+  let config = Config::from_str(r#"
+used=${bg|black}${fg|green}${mem_used|.2}
+total=${fg|gray}/ ${fg|blue}${mem_total}
+usage=${fg|gray}(${fg|yellow}${mem_usage|.2|with_suffix}%${fg|gray})
+output=${used} ${total} ${usage}
+"#).unwrap();
+  let output = config.output.clone();
+  let data = Data::new(sys, config);
+  let str = data.expand_placeholders(&output);
 
   print!("{}", str);
 }

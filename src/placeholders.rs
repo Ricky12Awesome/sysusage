@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Add;
 
-pub type PlaceholderFn<T, A> = fn(&T, args: A) -> String;
+pub type PlaceholderFn<T, A> = Box<dyn Fn(&T, A) -> String>;
 
 pub trait PlaceholderExpander where Self: 'static {
   type Args: Debug;
