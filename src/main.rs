@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use sysinfo::{ProcessorExt, RefreshKind, SystemExt};
+
 use crate::bytes::{ByteFormat, ByteFormatConvert};
 use crate::color::{Color, ColorMode, set_color_mode};
 use crate::config::Config;
@@ -41,17 +43,24 @@ struct Data {
 }
 
 impl Data {
-  fn new(sys: FixedSystem, config: Config) -> Self {
+  fn new(sys: FixedSystem, sections: Vec<(String, String)>) -> Self {
     let mut _self = Self {
       sys,
-      custom: HashMap::with_capacity(config.sections.len() * 2)
+      custom: HashMap::with_capacity(sections.len() * 2),
     };
 
-    for (name, value) in config.sections {
+    for (name, value) in sections {
+      log::debug!("{name}, {value}");
       _self.custom.insert(name, _self.expand_placeholders(&value));
     }
 
     _self
+  }
+
+  fn expand_placeholders_from(sys: FixedSystem, config: Config) -> String {
+    let mut _self = Self::new(sys, config.sections);
+
+    _self.expand_placeholders(&config.output)
   }
 }
 
@@ -146,6 +155,12 @@ impl Data {
     swap_used(self, args) { self.mem_placeholder(FixedSystem::used_swap, args) }
     swap_total(self, args) { self.mem_placeholder(FixedSystem::total_swap, args) }
     swap_free(self, args) { self.mem_placeholder(FixedSystem::free_swap, args) }
+
+    cpu_usage(self, args) {
+      let percent = self.sys.global_processor_info().cpu_usage();
+
+      percent.trim_trailing_zeros_with_precision(args.precision)
+    }
   }
 
   fn mem_placeholder(&self, val: fn(&FixedSystem) -> u64, args: Args) -> String {
@@ -187,16 +202,23 @@ fn main() {
   log::init(LogMode::Debug);
   set_color_mode(ColorMode::Always);
 
-  let sys = FixedSystem::new_all();
-  let config = Config::from_str(r#"
-used=${bg|black}${fg|green}${mem_used|.2}
-total=${fg|gray}/ ${fg|blue}${mem_total}
-usage=${fg|gray}(${fg|yellow}${mem_usage|.2|with_suffix}%${fg|gray})
-output=${used} ${total} ${usage}
-"#).unwrap();
-  let output = config.output.clone();
-  let data = Data::new(sys, config);
-  let str = data.expand_placeholders(&output);
+  let sys = FixedSystem::new_with_specifics(
+    RefreshKind::new()
+      .with_memory()
+      .with_cpu()
+      .with_networks()
+  );
 
-  print!("{}", str);
+  let config = Config::from_str(r#"
+symbol=${fg|gray}
+sep=${symbol}|
+used=${fg|green}${mem_used|.2}
+total=${symbol}/ ${fg|blue}${mem_total}
+usage=${symbol}(${fg|yellow}${mem_usage|.2|with_suffix}%${symbol})
+cpu=${fg|red}${cpu_usage|.2}
+output=${sep} ${cpu} ${sep} ${used} ${total} ${usage} ${sep} ${reset}
+"#).unwrap();
+  let str = Data::expand_placeholders_from(sys, config);
+
+  println!("{}", str);
 }

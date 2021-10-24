@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::borrow::Cow;
 use std::str::FromStr;
 
