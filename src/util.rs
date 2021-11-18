@@ -1,4 +1,10 @@
-use num::traits::clamp_max;
+fn clamp_max(usize: usize, max: usize) -> usize {
+  if usize >= max {
+    max
+  } else {
+    usize
+  }
+}
 
 pub trait TrimTrailingZeros {
   fn trim_trailing_zeros(&self) -> &str;

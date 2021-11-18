@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use sysinfo::{ProcessorExt, RefreshKind, SystemExt};
+use sysinfo::{ComponentExt, RefreshKind, ProcessorExt};
 
 use crate::bytes::{ByteFormat, ByteFormatConvert};
 use crate::color::{Color, ColorMode, set_color_mode};
 use crate::config::Config;
-use crate::fixed_system::FixedSystem;
+use crate::fixed_system::{CPU, FixedSystem};
 use crate::log::LogMode;
 use crate::placeholders::PlaceholderExpander;
 use crate::util::TrimTrailingZerosToString;
@@ -50,7 +50,6 @@ impl Data {
     };
 
     for (name, value) in sections {
-      log::debug!("{name}, {value}");
       _self.custom.insert(name, _self.expand_placeholders(&value));
     }
 
@@ -142,6 +141,7 @@ impl Data {
     fg(self, args) { args.fg }
     bg(self, args) { args.bg }
 
+    //region MEM
     mem_usage(self, args) {
       let percent = (self.sys.used_memory() as f64 / self.sys.total_memory() as f64) * 100f64;
 
@@ -155,11 +155,77 @@ impl Data {
     swap_used(self, args) { self.mem_placeholder(FixedSystem::used_swap, args) }
     swap_total(self, args) { self.mem_placeholder(FixedSystem::total_swap, args) }
     swap_free(self, args) { self.mem_placeholder(FixedSystem::free_swap, args) }
+    //endregion
 
+    //region CPU
     cpu_usage(self, args) {
-      let percent = self.sys.global_processor_info().cpu_usage();
+      self.cpu_placeholder(&args, |cpu, args| cpu
+        .processor
+        .cpu_usage()
+        .trim_trailing_zeros_with_precision(args.precision)
+      )
+    }
 
-      percent.trim_trailing_zeros_with_precision(args.precision)
+    cpu_freq(self, args) {
+      self.cpu_placeholder(&args, |cpu, _| cpu
+        .processor
+        .frequency()
+        .to_string()
+      )
+    }
+
+    cpu_name(self, args) {
+      self.cpu_placeholder(&args, |cpu, _| cpu
+        .processor
+        .name()
+        .to_string()
+      )
+    }
+
+    cpu_vendor(self, args) {
+      self.cpu_placeholder(&args, |cpu, _| cpu
+        .processor
+        .vendor_id()
+        .to_string()
+      )
+    }
+
+    cpu_temp(self, args) {
+      self.cpu_placeholder(&args, |cpu, args| cpu
+        .component
+        .temperature()
+        .trim_trailing_zeros_with_precision(args.precision)
+      )
+    }
+
+    cpu_critical_temp(self, args) {
+      self.cpu_placeholder(&args, |cpu, args| cpu
+        .component
+        .critical()
+        .unwrap_or(f32::NAN)
+        .trim_trailing_zeros_with_precision(args.precision)
+      )
+    }
+
+    cpu_max_temp(self, args) {
+      self.cpu_placeholder(&args, |cpu, args| cpu
+        .component
+        .max()
+        .trim_trailing_zeros_with_precision(args.precision)
+      )
+    }
+    //endregion
+
+    //region DISK
+    //endregion
+  }
+
+  fn cpu_placeholder(&self, args: &Args, f: fn(&CPU, &Args) -> String) -> String {
+    let cpu = self.sys.cpu();
+
+    match cpu {
+      Some(cpu) => f(&cpu, args),
+      None => "".to_string(),
     }
   }
 
@@ -199,23 +265,26 @@ impl PlaceholderExpander for Data {
 }
 
 fn main() {
-  log::init(LogMode::Debug);
+  log::init(LogMode::Silent);
   set_color_mode(ColorMode::Always);
 
   let sys = FixedSystem::new_with_specifics(
     RefreshKind::new()
       .with_memory()
       .with_cpu()
+      .with_components()
+      .with_components_list()
       .with_networks()
+      .with_networks_list()
   );
 
   let config = Config::from_str(r#"
 symbol=${fg|gray}
 sep=${symbol}|
 used=${fg|green}${mem_used|.2}
-total=${symbol}/ ${fg|blue}${mem_total}
-usage=${symbol}(${fg|yellow}${mem_usage|.2|with_suffix}%${symbol})
-cpu=${fg|red}${cpu_usage|.2}
+total=${symbol}/ ${fg|blue}${mem_total} ${symbol}GiB
+usage=${symbol}(${fg|yellow}${mem_usage|.2|with_suffix}${symbol}%)
+cpu=${fg|red}${cpu_usage|.2}${symbol}% ${fg|magenta}${cpu_temp|.2}${symbol}°C
 output=${sep} ${cpu} ${sep} ${used} ${total} ${usage} ${sep} ${reset}
 "#).unwrap();
   let str = Data::expand_placeholders_from(sys, config);

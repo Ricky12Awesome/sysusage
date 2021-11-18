@@ -5,13 +5,18 @@ use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-use sysinfo::{RefreshKind, System, SystemExt};
+use sysinfo::{ComponentExt, RefreshKind, System, SystemExt};
 
 /// Removes [sysinfo::System] memory conversion, since it makes it inaccurate
 /// `/proc/meminfo` is already `KiB`, even though it says `kB`
 #[derive(Default, Debug)]
 pub struct FixedSystem {
   sys: System,
+}
+
+pub struct CPU<'a> {
+  pub processor: &'a sysinfo::Processor,
+  pub component: &'a sysinfo::Component
 }
 
 impl Deref for FixedSystem {
@@ -52,6 +57,15 @@ impl FixedSystem {
       sys: System::new_with_specifics(refreshes),
       ..Default::default()
     }
+  }
+
+  pub fn cpu(&self) -> Option<CPU<'_>> {
+    Some(CPU {
+      processor: self.sys.global_processor_info(),
+      component: self.components()
+        .iter()
+        .find(|it| it.label() == "CPU")?
+    })
   }
 
   /// Total Memory in `KiB`
